@@ -1,4 +1,5 @@
 from collections.abc import Iterable
+from enum import IntEnum
 from math import sqrt
 
 import cv2
@@ -22,6 +23,12 @@ HISTOGRAM_SIZE = (8, 8, 8)
 RANGES = (0, MAXRANGE, 0, MAXRANGE, 0, MAXRANGE)
 MASK_SIZE_MULTIPLIER = ColorChannel.Alpha * MAXBYTE * MAXBYTE
 MAX_VALUE = 1.0
+
+
+class ComparisonMethod(IntEnum):
+    L2Norm = 0
+    Histograms = 1
+    PHash = 2
 
 
 def compare_histograms(source: MatLike, capture: MatLike, mask: MatLike | None = None):
@@ -182,11 +189,11 @@ def get_ocr_comparison_method_by_index(comparison_method_index: int):
 
 def get_comparison_method_by_index(comparison_method_index: int):
     match comparison_method_index:
-        case 0:
+        case ComparisonMethod.L2Norm:
             return compare_l2_norm
-        case 1:
+        case ComparisonMethod.Histograms:
             return compare_histograms
-        case 2:
+        case ComparisonMethod.PHash:
             return compare_phash
         case _:
             return __compare_dummy

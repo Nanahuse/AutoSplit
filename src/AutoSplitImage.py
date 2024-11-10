@@ -75,7 +75,7 @@ class AutoSplitImage:
             return default
         return default.settings_dict["default_delay_time"]
 
-    def __get_comparison_method_index(self, default: "AutoSplit | int"):
+    def get_comparison_method_index(self, default: "AutoSplit | int"):
         """Get image's comparison or fallback to the default value from combobox."""
         if self.__comparison_method is not None:
             return self.__comparison_method
@@ -220,7 +220,7 @@ class AutoSplitImage:
         )
 
         return get_comparison_method_by_index(
-            self.__get_comparison_method_index(default),
+            self.get_comparison_method_index(default),
         )(
             self.byte_array,
             resized_capture,
