@@ -8,7 +8,7 @@ import cv2
 import pytest
 
 from AutoSplitImage import AutoSplitImage
-from compare import ComparisonMethod
+from comparison_method import ComparisonMethod
 from utils import imread
 
 

@@ -1,40 +1,25 @@
 import os
 import tomllib
+from dataclasses import dataclass
 from enum import IntEnum, auto
-from math import sqrt
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import cv2
-import numpy as np
 from cv2.typing import MatLike
 
 import error_messages
-from compare import (
-    check_if_image_has_transparency,
-    extract_and_compare_text,
+from comparison_method import (
+    ComparisonMethodInterface,
+    ImageComparisonMethodBase,
+    OcrComparisonMethod,
+    OcrSettings,
     get_comparison_method_by_index,
 )
-from utils import (
-    BGR_CHANNEL_COUNT,
-    MAXBYTE,
-    TESSERACT_PATH,
-    ColorChannel,
-    ImageShape,
-    imread,
-    is_valid_image,
-)
+from utils import TESSERACT_PATH, imread, is_valid_image
 
 if TYPE_CHECKING:
     from AutoSplit import AutoSplit
 
-
-# Resize to these width and height so that FPS performance increases
-COMPARISON_RESIZE_WIDTH = 320
-COMPARISON_RESIZE_HEIGHT = 240
-COMPARISON_RESIZE = (COMPARISON_RESIZE_WIDTH, COMPARISON_RESIZE_HEIGHT)
-COMPARISON_RESIZE_AREA = COMPARISON_RESIZE_WIDTH * COMPARISON_RESIZE_HEIGHT
-MASK_LOWER_BOUND = np.array([0, 0, 0, 1], dtype=np.uint8)
-MASK_UPPER_BOUND = np.array([MAXBYTE, MAXBYTE, MAXBYTE, MAXBYTE], dtype=np.uint8)
 START_KEYWORD = "start_auto_splitter"
 RESET_KEYWORD = "reset"
 
@@ -45,19 +30,27 @@ class ImageType(IntEnum):
     START = auto()
 
 
+@dataclass
+class Rectangle:
+    left: int
+    right: int
+    top: int
+    bottom: int
+
+    def is_valid(self) -> bool:
+        return (self.right > self.left >= 0) and (self.bottom > self.top >= 0)
+
+
 class AutoSplitImage:
     image_type: ImageType
-    byte_array: MatLike | None = None
-    mask: MatLike | None = None
-    # This value is internal, check for mask instead
-    _has_transparency = False
     # These values should be overridden by some Defaults if None. Use getters instead
     __delay_time: float | None = None
-    __comparison_method: int | None = None
+    __comparison_method_index: int | None = None
+    __comparison_method: ComparisonMethodInterface
     __pause_time: float | None = None
     __similarity_threshold: float | None = None
-    __rect = (0, 0, 1, 1)
-    __fps_limit = 0
+    __rect: Rectangle | None
+    __fps_limit: int
 
     @property
     def is_ocr(self):
@@ -65,7 +58,19 @@ class AutoSplitImage:
         Whether a "split image" is actually for Optical Text Recognition
         based on whether there's any text strings to search for.
         """
-        return bool(self.texts)
+        return isinstance(self.__comparison_method, OcrComparisonMethod)
+
+    @property
+    def texts(self) -> list[str]:
+        if isinstance(self.__comparison_method, OcrComparisonMethod):
+            return self.__comparison_method.texts
+        return []
+
+    @property
+    def byte_array(self) -> MatLike | None:
+        if isinstance(self.__comparison_method, ImageComparisonMethodBase):
+            return self.__comparison_method.source
+        return None
 
     def get_delay_time(self, default: "AutoSplit | int"):
         """Get image's delay time or fallback to the default value from spinbox."""
@@ -77,8 +82,8 @@ class AutoSplitImage:
 
     def get_comparison_method_index(self, default: "AutoSplit | int"):
         """Get image's comparison or fallback to the default value from combobox."""
-        if self.__comparison_method is not None:
-            return self.__comparison_method
+        if self.__comparison_method_index is not None:
+            return self.__comparison_method_index
         if isinstance(default, int):
             return default
         return default.settings_dict["default_comparison_method"]
@@ -99,7 +104,7 @@ class AutoSplitImage:
             return default
         return default.settings_dict["default_similarity_threshold"]
 
-    def get_fps_limit(self, default: "AutoSplit"):
+    def get_fps_limit(self, default: "AutoSplit") -> int:
         """Get image's fps limit or fallback to the default value from spinbox."""
         if self.__fps_limit != 0:
             return self.__fps_limit
@@ -111,11 +116,13 @@ class AutoSplitImage:
         self.flags = flags_from_filename(self.filename)
         self.loops = loop_from_filename(self.filename)
         self.__delay_time = delay_time_from_filename(self.filename)
-        self.__comparison_method = comparison_method_from_filename(self.filename)
+        self.__comparison_method_index = comparison_method_from_filename(self.filename)
         self.__pause_time = pause_from_filename(self.filename)
         self.__similarity_threshold = threshold_from_filename(self.filename)
-        self.texts: list[str] = []
-        self.__ocr_comparison_methods: list[int] = []
+        self.__comparison_method = ComparisonMethodInterface()
+        self.__rect = None
+        self.__fps_limit = 0
+
         if path.endswith("txt"):
             self.__parse_text_file(path)
         else:
@@ -134,61 +141,32 @@ class AutoSplitImage:
             return
 
         with open(path, mode="rb") as f:
-            data = tomllib.load(f)
+            data = cast(OcrSettings, tomllib.load(f))
 
-        self.texts = [text.lower().strip() for text in data["texts"]]
-        self.__rect = (data["left"], data["right"], data["top"], data["bottom"])
-        self.__ocr_comparison_methods = data.get("methods", [0])
-        self.__fps_limit = data.get("fps_limit", 0)
+        rect = Rectangle(data["left"], data["right"], data["top"], data["bottom"])
+        fps_limit = data.get("fps_limit", 0)
 
-        if self.__validate_ocr():
+        texts = [text.lower().strip() for text in data["texts"]]
+        ocr_comparison_methods = data.get("methods", [0])
+
+        # Check for invalid negative values
+        if all(value >= 0 for value in [*ocr_comparison_methods, fps_limit]) and rect.is_valid():
             error_messages.wrong_ocr_values(path)
             return
 
-    def __validate_ocr(self):
-        values = [*self.__rect, *self.__ocr_comparison_methods, self.__fps_limit]
-        return (
-            all(value >= 0 for value in values)  # Check for invalid negative values
-            and self.__rect[1] > self.__rect[0]
-            and self.__rect[3] > self.__rect[2]
-        )
+        self.__comparison_method = OcrComparisonMethod(texts, ocr_comparison_methods)
+        self.__rect = rect
+        self.__fps_limit = fps_limit
 
     def __read_image_bytes(self, path: str):
         image = imread(path, cv2.IMREAD_UNCHANGED)
         if not is_valid_image(image):
-            self.byte_array = None
+            self.__comparison_method = ComparisonMethodInterface()
             error_messages.image_type(path)
             return
 
-        self._has_transparency = check_if_image_has_transparency(image)
-        # If image has transparency, create a mask
-        if self._has_transparency:
-            # Adaptively determine the target size according to
-            # the number of nonzero elements in the alpha channel of the split image.
-            # This may result in images bigger than COMPARISON_RESIZE if there's plenty of transparency. # noqa: E501
-            # Which wouldn't incur any performance loss in methods where masked regions are ignored.
-            scale = min(
-                1,
-                sqrt(COMPARISON_RESIZE_AREA / cv2.countNonZero(image[:, :, ColorChannel.Alpha])),
-            )
-
-            image = cv2.resize(
-                image,
-                dsize=None,
-                fx=scale,
-                fy=scale,
-                interpolation=cv2.INTER_NEAREST,
-            )
-
-            # Mask based on adaptively resized, nearest neighbor interpolated split image
-            self.mask = cv2.inRange(image, MASK_LOWER_BOUND, MASK_UPPER_BOUND)
-        else:
-            image = cv2.resize(image, COMPARISON_RESIZE, interpolation=cv2.INTER_NEAREST)
-            # Add Alpha channel if missing
-            if image.shape[ImageShape.Channels] == BGR_CHANNEL_COUNT:
-                image = cv2.cvtColor(image, cv2.COLOR_BGR2BGRA)
-
-        self.byte_array = image
+        comparison_method = get_comparison_method_by_index(self.__comparison_method_index)
+        self.__comparison_method = comparison_method(image)
 
     def check_flag(self, flag: int):
         return self.flags & flag == flag
@@ -203,28 +181,18 @@ class AutoSplitImage:
         if not is_valid_image(capture):
             return 0.0
 
-        if self.is_ocr:
-            return extract_and_compare_text(
-                capture[
-                    self.__rect[2] : self.__rect[3],
-                    self.__rect[0] : self.__rect[1],
-                ],
-                self.texts,
-                self.__ocr_comparison_methods,
-            )
+        if (self.__comparison_method_index is None) and (
+            isinstance(self.__comparison_method, ImageComparisonMethodBase)
+        ):
+            comparison_method_index = self.get_comparison_method_index(default)
+            comparison_method = get_comparison_method_by_index(comparison_method_index)
+            if type(self.__comparison_method) is not comparison_method:
+                self.__comparison_method = comparison_method(self.__comparison_method.source)
 
-        if not is_valid_image(self.byte_array):
-            return 0.0
-        resized_capture = cv2.resize(
-            capture, self.byte_array.shape[1::-1], interpolation=cv2.INTER_NEAREST
-        )
-
-        return get_comparison_method_by_index(
-            self.get_comparison_method_index(default),
-        )(
-            self.byte_array,
-            resized_capture,
-            self.mask,
+        return self.__comparison_method.compare(
+            capture
+            if self.__rect is None
+            else capture[self.__rect.top : self.__rect.bottom, self.__rect.left : self.__rect.right]
         )
 
 
