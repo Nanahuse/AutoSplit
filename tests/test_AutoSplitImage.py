@@ -62,7 +62,7 @@ def test_compare_with_capture_same_data(comparison_method_indexes: int):
 
 @pytest.mark.parametrize(
     ("comparison_method_indexes", "expected"),
-    zip(ComparisonMethod, [0.73444853, 0.69336759, 0.96875], strict=True),
+    zip(ComparisonMethod, [0.73444853, 0.69336759, 0.96875, 0.91864390], strict=True),
 )
 def test_compare_with_capture_diff_data(comparison_method_indexes: int, expected: float):
     image = AutoSplitImage(image_path_str("00_test_image.png"))
@@ -75,7 +75,7 @@ def test_compare_with_capture_diff_data(comparison_method_indexes: int, expected
     ("comparison_method_indexes", "expected"),
     zip(
         comparison_method_allow_transparency(),
-        [0.68961008, 0.69326769],
+        [0.68961008, 0.69326769, 0.91660670],
         strict=True,
     ),
 )
@@ -92,7 +92,7 @@ def test_compare_with_capture_same_data_transparency_compress(
     ("comparison_method_indexes", "expected"),
     zip(
         comparison_method_allow_transparency(),
-        [0.42887980, 0.4288797],
+        [0.42887980, 0.4288797, 0.54632815],
         strict=True,
     ),
 )
@@ -103,3 +103,14 @@ def test_compare_with_capture_same_data_transparency_uncompress(
     capture = imread(image_path_str("01_test_image.png"))
     capture = cv2.cvtColor(capture, cv2.COLOR_BGR2BGRA)
     assert image.compare_with_capture(comparison_method_indexes, capture) == pytest.approx(expected)
+
+
+def test_compare_with_capture_template():
+    image = AutoSplitImage(image_path_str("test_template.png"))
+    capture = imread(image_path_str("00_test_image.png"))
+    capture = cv2.cvtColor(capture, cv2.COLOR_BGR2BGRA)
+    assert image.compare_with_capture(ComparisonMethod.Template, capture) == pytest.approx(1.0)
+
+    capture = imread(image_path_str("01_test_image.png"))
+    capture = cv2.cvtColor(capture, cv2.COLOR_BGR2BGRA)
+    assert image.compare_with_capture(ComparisonMethod.Template, capture) == pytest.approx(1.0)
