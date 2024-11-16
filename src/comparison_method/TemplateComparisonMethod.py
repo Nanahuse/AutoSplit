@@ -30,8 +30,6 @@ class TemplateComparisonMethod(ImageComparisonMethodBase):
         """
         Compares two images by calculating the L2 Error (square-root of sum of squared error)
         @param source: Image of any given shape
-        @param capture: Image matching the dimensions of the source
-        @param mask: An image matching the dimensions of the source, but 1 channel grayscale
         @return: The similarity between the images as a number 0 to 1.
         """
         resized_capture = self.resize_capture(capture)

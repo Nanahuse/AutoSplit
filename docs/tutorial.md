@@ -30,11 +30,13 @@
 
 #### Comparison Method
 
-- There are three comparison methods to choose from: L2 Norm, Histograms, and Perceptual Hash (or pHash).
+- There are four comparison methods to choose from: L2 Norm, Histograms, Perceptual Hash (or pHash), and Template matching.
   - L2 Norm: This method should be fine to use for most cases. It finds the difference between each pixel, squares it, sums it over the entire image and takes the square root. This is very fast but is a problem if your image is high frequency. Any translational movement or rotation can cause similarity to be very different.
   - Histograms: An explanation on Histograms comparison can be found [here](https://mpatacchiola.github.io/blog/2016/11/12/the-simplest-classifier-histogram-intersection.html). This is a great method to use if you are using several masked images.
     > This algorithm is particular reliable when the colour is a strong predictor of the object identity. The histogram intersection [...] is robust to occluding objects in the foreground.
   - Perceptual Hash: An explanation on pHash comparison can be found [here](http://www.hackerfactor.com/blog/index.php?/archives/432-Looks-Like-It.html). It is highly recommended to NOT use pHash if you use masked images, or it'll be very inaccurate.
+  - Template matching: This is something similar to the L2 norm. However, unlike the L2 norm, this supports translational movement and can detect regardless of where they appear. But this has higher calculation costs. And any rotation or scaling is still cause of the similarity difference.
+    > aaa
 
 #### Capture Method
 <!-- Keep all descriptions in sync with in-code descriptions in src/capture_method/*CaptureMethod.py-->
@@ -145,6 +147,7 @@ This option is mainly meant to be toggled with the `Toggle auto Reset Image` hot
   - `^0^`: L2 Norm
   - `^1^`: Histogram
   - `^2^`: Perceptual Hash
+  - `^3^`: Template Matching
 - **Image loop** amounts are placed between at symbols `@@` in the filename. For example, a specific image that you want to split 5 times in a row would be `@5@`. The current loop # is conveniently located beneath the current split image.
 - **Flags** are placed between curly brackets `{}` in the filename. Multiple flags are placed in the same set of curly brackets. Current available flags:
   - `{d}` **dummy split image**. When matched, it moves to the next image without hitting your split hotkey.
